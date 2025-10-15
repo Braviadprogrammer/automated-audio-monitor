@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Audio Monitor</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; padding: 20px; background-color: #f4f4f4; }
+        .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; color: #333; }
+        #status { margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 5px; background-color: #e9e9e9; }
+        #status p { margin: 5px 0; font-size: 1.1em; }
+        .indicator { display: inline-block; width: 15px; height: 15px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+        .indicator.true { background-color: #dc3545; /* Red for detected */ }
+        .indicator.false { background-color: #28a745; /* Green for clear */ }
+        #conducive-status { font-weight: bold; padding: 10px; text-align: center; border-radius: 5px; margin-top: 10px; }
+        #conducive-status.true { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        #conducive-status.false { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        #log { margin-top: 20px; height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background-color: #f8f9fa; font-family: monospace; font-size: 0.9em; white-space: pre-wrap; }
+        #log div { margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px dashed #eee; }
+         .log-warning { color: #856404; background-color: #fff3cd; padding: 2px 4px; border-radius: 3px; }
+        .log-info { color: #0c5460; background-color: #d1ecf1; padding: 2px 4px; border-radius: 3px; }
+        .log-error { color: #721c24; background-color: #f8d7da; padding: 2px 4px; border-radius: 3px; font-weight: bold;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Exam Environment Audio Monitor</h1>
+
+        <div id="status">
+            <h2>Current Status</h2>
+            <p><strong>Timestamp:</strong> <span id="timestamp">Connecting...</span></p>
+            <p><span id="voice-indicator" class="indicator false"></span><strong>Voice Detected:</strong> <span id="voice-status">False</span></p>
+            <p><span id="noise-indicator" class="indicator false"></span><strong>Noise Detected:</strong> <span id="noise-status">False</span></p>
+            <p><span id="sound-indicator" class="indicator false"></span><strong>Sound Detected:</strong> <span id="sound-status">False</span></p>
+            <p><strong>Status Message:</strong> <span id="message">Initializing...</span></p>
+            <div id="conducive-status" class="true">Environment is CONDUCIVE</div>
+        </div>
+
+        <h2>Detection Log (Real-time)</h2>
+        <div id="log">
+            <div>Connecting to event stream...</div>
+        </div>
+         <p><small>Full log available at <a href="/log" target="_blank">/log</a></small></p>
+    </div>
+
+    <script>
+        const timestampEl = document.getElementById('timestamp');
+        const voiceStatusEl = document.getElementById('voice-status');
+        const noiseStatusEl = document.getElementById('noise-status');
+        const soundStatusEl = document.getElementById('sound-status');
+        const voiceIndicatorEl = document.getElementById('voice-indicator');
+        const noiseIndicatorEl = document.getElementById('noise-indicator');
+        const soundIndicatorEl = document.getElementById('sound-indicator');
+        const messageEl = document.getElementById('message');
+        const conduciveStatusEl = document.getElementById('conducive-status');
+        const logEl = document.getElementById('log');
+
+        // Function to add log entry and scroll
+        function addLogEntry(logData) {
+            const logEntry = document.createElement('div');
+            const time = new Date(logData.timestamp).toLocaleTimeString();
+            let indicatorClass = 'log-info'; // Default
+            if (!logData.conducive) {
+                 indicatorClass = 'log-warning'; // Warning for non-conducive
+            }
+             if (logData.message && logData.message.startsWith('ERROR')) {
+                indicatorClass = 'log-error'; // Error style
+             }
+
+            logEntry.innerHTML = `<span class="${indicatorClass}">[${time}]</span> ${logData.message}`;
+            // Prepend new entries to the top
+            logEl.insertBefore(logEntry, logEl.firstChild);
+
+             // Optional: Limit log size in browser to prevent memory issues
+            const maxLogEntries = 200;
+            if (logEl.children.length > maxLogEntries) {
+                logEl.removeChild(logEl.lastChild);
+            }
+        }
+
+
+        // Connect to the SSE endpoint
+        const eventSource = new EventSource('/stream');
+
+        logEl.innerHTML = '<div>Connecting to event stream...</div>'; // Clear initial message
+
+        eventSource.onmessage = function(event) {
+            // Parse the JSON data received from the server
+            const status = JSON.parse(event.data);
+
+            // Update status indicators
+            timestampEl.textContent = new Date(status.timestamp).toLocaleString();
+            voiceStatusEl.textContent = status.voice_detected;
+            noiseStatusEl.textContent = status.noise_detected;
+            soundStatusEl.textContent = status.sound_detected;
+            messageEl.textContent = status.message;
+
+            // Update indicator colors (red if true, green if false)
+            voiceIndicatorEl.className = `indicator ${status.voice_detected}`;
+            noiseIndicatorEl.className = `indicator ${status.noise_detected}`;
+            soundIndicatorEl.className = `indicator ${status.sound_detected}`;
+
+            // Update overall conducive status display
+            if (status.conducive) {
+                conduciveStatusEl.textContent = 'Environment is CONDUCIVE';
+                conduciveStatusEl.className = 'true';
+            } else {
+                conduciveStatusEl.textContent = 'ALERT: Environment is NOT CONDUCIVE for exams!';
+                conduciveStatusEl.className = 'false';
+            }
+
+            // Add the status message to the log
+            addLogEntry(status);
+        };
+
+        eventSource.onerror = function(err) {
+            console.error("EventSource failed:", err);
+            messageEl.textContent = "Connection error to server stream.";
+            conduciveStatusEl.textContent = 'ERROR: Cannot determine status';
+            conduciveStatusEl.className = 'false';
+             addLogEntry({ timestamp: new Date().toISOString(), message: "ERROR: Lost connection to server stream.", conducive: false });
+            // Optionally try to reconnect or close
+            // eventSource.close();
+        };
+
+         // Clear log on initial load if needed, or show loading message
+        // logEl.innerHTML = '';
+
+    </script>
+</body>
+</html>
